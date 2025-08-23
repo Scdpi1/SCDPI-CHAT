@@ -1,0 +1,7 @@
+#!/bin/bash
+# Script de pré-remoção
+
+# Remover link simbólico
+rm -f /usr/bin/scdpi-chat
+
+echo "🧹 Limpando instalação do SCDPI CHAT..."

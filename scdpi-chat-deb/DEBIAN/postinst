@@ -1,0 +1,23 @@
+#!/bin/bash
+# Script de pós-instalação
+
+echo "🔄 Configurando SCDPI CHAT..."
+
+# Criar diretório de configuração
+mkdir -p /etc/scdpi
+chmod 755 /etc/scdpi
+
+# Copiar configuração padrão se não existir
+if [ ! -f /etc/scdpi/config.json ]; then
+    cp /usr/share/scdpi-chat/config_example.json /etc/scdpi/config.json
+    chmod 600 /etc/scdpi/config.json
+    echo "⚙️  Arquivo de configuração criado: /etc/scdpi/config.json"
+fi
+
+# Criar link simbólico
+ln -sf /usr/share/scdpi-chat/scdpi_chat.py /usr/bin/scdpi-chat
+chmod +x /usr/bin/scdpi-chat
+
+echo "✅ SCDPI CHAT instalado com sucesso!"
+echo "📝 Configure: sudo nano /etc/scdpi/config.json"
+echo "🚀 Execute: scdpi-chat"

@@ -1,0 +1,15 @@
+{
+    "server": "irc.libera.chat",
+    "port": 6697,
+    "use_ssl": true,
+    "nickname": "SEU_NICK_UNICO_AQUI",
+    "realname": "SCDPI CHAT User",
+    "channels": ["#scdpi-test", "#ubuntu"],
+    "server_password": "",
+    "notification_settings": {
+        "enable_mentions": true,
+        "enable_private_messages": true,
+        "enable_server_alerts": false
+    }
+}
+

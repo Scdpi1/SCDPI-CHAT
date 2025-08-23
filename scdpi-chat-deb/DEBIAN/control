@@ -1,0 +1,11 @@
+Package: scdpi-chat
+Version: 1.0.0
+Section: net
+Priority: optional
+Architecture: all
+Depends: python3, python3-pip, python3-requests, python3-cryptography, openssl
+Maintainer: SCDPI <scdpi@example.com>
+Description: Cliente IRC com Notificações - SCDPI CHAT
+ Cliente IRC moderno com sistema de notificações.
+ Interface colorida e suporte a SSL.
+Homepage: https://github.com/seu-usuario/SCDPI-CHAT

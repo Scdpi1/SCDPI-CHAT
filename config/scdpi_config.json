@@ -1,0 +1,27 @@
+{
+    "server": "irc.libera.chat",
+    "port": 6697,
+    "use_ssl": true,
+    "nickname": "YiBey",
+    "realname": "SCDPI CHAT User",
+    "channels": [
+        "#scdpi-test"
+    ],
+    "server_password": "",
+    "encrypted": false,
+    "notification_settings": {
+        "enable_mentions": true,
+        "enable_private_messages": true,
+        "enable_server_alerts": false
+    },
+    "telegram": {
+        "enabled": false,
+        "bot_token": "seu_bot_token_aqui",
+        "chat_id": "seu_chat_id_aqui"
+    },
+    "pushover": {
+        "enabled": false,
+        "api_token": "seu_api_token_aqui",
+        "user_key": "seu_user_key_aqui"
+    }
+}
