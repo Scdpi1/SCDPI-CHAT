@@ -1,0 +1,9 @@
+LICENSE
+README.md
+setup.py
+scdpi_chat.egg-info/PKG-INFO
+scdpi_chat.egg-info/SOURCES.txt
+scdpi_chat.egg-info/dependency_links.txt
+scdpi_chat.egg-info/entry_points.txt
+scdpi_chat.egg-info/requires.txt
+scdpi_chat.egg-info/top_level.txt

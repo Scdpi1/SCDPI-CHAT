@@ -1,0 +1,2 @@
+[console_scripts]
+scdpi-chat = scdpi_chat:main
