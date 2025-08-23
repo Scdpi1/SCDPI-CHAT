@@ -1,0 +1,21 @@
+# Configurações sensíveis
+config.json
+*.key
+*.pem
+
+# Logs
+*.log
+logs/
+
+# Backup
+*.backup
+*.old
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Sistema
+.DS_Store
+Thumbs.db
