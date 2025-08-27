@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SCDPI CHAT - Cliente IRC Universal Multiplataforma
-Versão 2.2 - Nickname definido pelo usuário
+Versão 2.3 - Com reconexão automática e melhorias de UX
 """
 import socket
 import ssl
@@ -12,6 +12,7 @@ import sys
 import platform
 import argparse
 from pathlib import Path
+from datetime import datetime  # NOVO: Para adicionar timestamps
 
 # Configuração de cores para terminal
 class Colors:
@@ -66,7 +67,7 @@ def get_user_configuration():
     port = input(f"{Colors.YELLOW}🚪 Porta [{Colors.WHITE}6697{Colors.YELLOW}]: {Colors.RESET}") or "6697"
     use_ssl = input(f"{Colors.YELLOW}🔒 Usar SSL? (s/n) [{Colors.WHITE}s{Colors.YELLOW}]: {Colors.RESET}") or "s"
     
-    return {
+    config = {
         "nickname": nickname,
         "channels": [channel],
         "server": server,
@@ -75,6 +76,24 @@ def get_user_configuration():
         "realname": f"{nickname} User",
         "server_password": ""
     }
+    
+    # NOVO: Salvar configuração automaticamente
+    config_path = get_default_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, 'w', encoding='utf-8') as f:
+        json.dump(config, f, indent=4)
+    
+    return config
+
+def get_default_config_path():
+    """Retorna o path correto do config baseado no SO"""
+    system = platform.system()
+    if system == "Windows":
+        return Path(os.environ['APPDATA']) / "SCDPI" / "config.json"
+    elif "TERMUX" in os.environ:
+        return Path.home() / ".config" / "scdpi" / "config.json"
+    else:
+        return Path.home() / ".config" / "scdpi" / "config.json"
 
 def parse_arguments():
     """Parse command line arguments"""
@@ -96,18 +115,10 @@ class SCDPIChatUniversal:
         self.socket = None
         self.running = True
         self.current_channel = None
-        
-    def get_config_path(self):
-        """Retorna o path correto do config baseado no SO"""
-        system = platform.system()
-        
-        if system == "Windows":
-            return Path(os.environ['APPDATA']) / "SCDPI" / "config.json"
-        elif "TERMUX" in os.environ:
-            return Path.home() / ".config" / "scdpi" / "config.json"
-        else:
-            return Path.home() / ".config" / "scdpi" / "config.json"
-    
+        self.reconnect_attempts = 0  # NOVO: Contador de tentativas de reconexão
+        self.max_reconnect_attempts = 5  # NOVO: Máximo de tentativas
+        self.joined_channels = set(self.config['channels'])  # NOVO: Rastrear canais ativos
+
     def load_config(self):
         """Carrega configuração com fallback para interativa"""
         if self.args.config:
@@ -116,9 +127,18 @@ class SCDPIChatUniversal:
                 try:
                     with open(config_path, 'r', encoding='utf-8') as f:
                         return json.load(f)
-                except (json.JSONDecodeError, IOError):
-                    print(f"{Colors.RED}❌ Erro no arquivo de configuração{Colors.RESET}")
+                except (json.JSONDecodeError, IOError) as e:
+                    print(f"{Colors.RED}❌ Erro no arquivo de configuração: {e}{Colors.RESET}")
                     sys.exit(1)
+        
+        # Tenta carregar configuração padrão
+        config_path = get_default_config_path()
+        if config_path.exists():
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                print(f"{Colors.YELLOW}⚠️ Configuração padrão não encontrada, criando nova...{Colors.RESET}")
         
         # Se --nick foi fornecido, usar ele
         if self.args.nick:
@@ -146,14 +166,14 @@ class SCDPIChatUniversal:
         
         print(f"{Colors.BOLD}{Colors.CYAN}")
         print(" " * padding + "╔══════════════════════════════════════════╗")
-        print(" " * padding + "║           SCDPI CHAT v2.2                ║")
+        print(" " * padding + "║           SCDPI CHAT v2.3                ║")
         print(" " * padding + "║      Cliente IRC Multiplataforma         ║")
         print(" " * padding + "╚══════════════════════════════════════════╝")
         print(f"{Colors.RESET}")
         
         print(f"{Colors.YELLOW}📡 Conectando: {self.config['server']}:{self.config['port']}")
         print(f"👤 Nickname: {self.config['nickname']}")
-        print(f"📺 Canal: {self.config['channels'][0]}")
+        print(f"📺 Canais: {', '.join(self.config['channels'])}")
         print(f"💡 Comandos: /help para ajuda{Colors.RESET}")
         print("─" * terminal_width)
     
@@ -189,6 +209,7 @@ class SCDPIChatUniversal:
             self.send(f"NICK {self.config['nickname']}\r\n")
             
             print(f"{Colors.GREEN}✅ Conectado! Digite /help para ajuda{Colors.RESET}")
+            self.reconnect_attempts = 0  # NOVO: Resetar contador de reconexão
             return True
             
         except Exception as e:
@@ -199,6 +220,8 @@ class SCDPIChatUniversal:
         """Envia mensagem para o servidor"""
         try:
             self.socket.send(message.encode('utf-8'))
+            if self.args.verbose:
+                print(f"{Colors.YELLOW}📤 Enviado: {message.strip()}{Colors.RESET}")
         except Exception as e:
             print(f"{Colors.RED}❌ Erro ao enviar: {e}{Colors.RESET}")
             self.running = False
@@ -214,16 +237,32 @@ class SCDPIChatUniversal:
         except Exception as e:
             print(f"{Colors.RED}❌ Erro ao receber: {e}{Colors.RESET}")
             return None
-    
+
     def handle_message(self, data):
         """Processa mensagens do servidor"""
         if not data:
             return
         
+        # Adicionar timestamp
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        # ✅✅✅ CORREÇÃO CRÍTICA - RESPONDER PING IMEDIATAMENTE!
         if data.startswith("PING"):
-            self.send(data.replace("PING", "PONG"))
+            pong_response = data.replace("PING", "PONG")
+            self.send(pong_response)
+            if self.args.verbose:
+                print(f"{Colors.GREEN}✅ [{timestamp}] PONG enviado: {pong_response}{Colors.RESET}")
             return
         
+        # ✅ Filtrar mensagens técnicas que quebram a interface
+        technical_patterns = ["CHANMODES", "MAXLIST", "TARGMAX", "PREFIX", "MODES", 
+                             "NETWORK", "CASEMAPPING", "NICKLEN", "CHANNELLEN"]
+        if any(pattern in data for pattern in technical_patterns):
+            if self.args.verbose:
+                print(f"{Colors.YELLOW}⚡ [{timestamp}] [Ignorado] {data}{Colors.RESET}")
+            return
+        
+        # Mensagem de usuário
         if "PRIVMSG" in data:
             try:
                 parts = data.split(' ', 3)
@@ -232,30 +271,45 @@ class SCDPIChatUniversal:
                 message = parts[3][1:] if parts[3].startswith(':') else parts[3]
                 
                 if target == self.config['nickname']:
-                    print(f"{Colors.MAGENTA}✉️ {sender}: {message}{Colors.RESET}")
+                    # Mensagem privada
+                    print(f"{Colors.MAGENTA}[{timestamp}] ✉️ {sender}: {message}{Colors.RESET}")
                 else:
-                    print(f"{Colors.CYAN}<{sender}> {Colors.WHITE}{message}{Colors.RESET}")
+                    # Mensagem em canal
+                    print(f"{Colors.CYAN}[{timestamp}] <{sender}@{target}> {Colors.WHITE}{message}{Colors.RESET}")
                     self.current_channel = target
                     
             except (IndexError, ValueError):
                 if self.args.verbose:
-                    print(f"{Colors.YELLOW}⚡ {data}{Colors.RESET}")
+                    print(f"{Colors.YELLOW}⚡ [{timestamp}] {data}{Colors.RESET}")
         
-        elif "001" in data:
-            print(f"{Colors.GREEN}✅ Conectado ao servidor!{Colors.RESET}")
+        # Outras mensagens importantes
+        elif "001" in data:  # Welcome
+            print(f"{Colors.GREEN}[{timestamp}] ✅ Conectado ao servidor!{Colors.RESET}")
             for channel in self.config.get('channels', []):
                 self.send(f"JOIN {channel}\r\n")
-                print(f"{Colors.BLUE}🚪 Entrando em {channel}...{Colors.RESET}")
+                print(f"{Colors.BLUE}[{timestamp}] 🚪 Entrando em {channel}...{Colors.RESET}")
+                self.joined_channels.add(channel)
         
-        elif "433" in data:
+        elif "433" in data:  # Nick em uso
             new_nick = f"{self.config['nickname']}_{os.getpid()}"
-            print(f"{Colors.YELLOW}⚠️ Nick em uso, tentando {new_nick}...{Colors.RESET}")
+            print(f"{Colors.YELLOW}[{timestamp}] ⚠️ Nick em uso, tentando {new_nick}...{Colors.RESET}")
             self.config['nickname'] = new_nick
             self.send(f"NICK {new_nick}\r\n")
         
+        elif "PART" in data or "QUIT" in data:
+            parts = data.split(' ')
+            if len(parts) > 2:
+                channel = parts[2]
+                if channel in self.joined_channels:
+                    self.joined_channels.remove(channel)
+                    if channel == self.current_channel:
+                        self.current_channel = None
+                    print(f"{Colors.BLUE}[{timestamp}] 👋 Saiu de {channel}{Colors.RESET}")
+        
         else:
+            # Mensagens gerais do servidor
             if self.args.verbose:
-                print(f"{Colors.YELLOW}⚡ {data}{Colors.RESET}")
+                print(f"{Colors.YELLOW}⚡ [{timestamp}] {data}{Colors.RESET}")
     
     def handle_user_input(self):
         """Processa entrada do usuário"""
@@ -271,6 +325,7 @@ class SCDPIChatUniversal:
                 self.handle_command(user_input[1:])
             elif user_input and self.current_channel:
                 self.send(f"PRIVMSG {self.current_channel} :{user_input}\r\n")
+                print(f"{Colors.CYAN}[{datetime.now().strftime('%H:%M:%S')}] <{self.config['nickname']}@{self.current_channel}> {Colors.WHITE}{user_input}{Colors.RESET}")
             elif user_input:
                 print(f"{Colors.RED}❌ Não está em nenhum canal. Use /join #canal{Colors.RESET}")
                 
@@ -285,38 +340,43 @@ class SCDPIChatUniversal:
         cmd = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
         
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
         if cmd == "join" and args:
             if not args.startswith('#'):
                 args = '#' + args
             self.send(f"JOIN {args}\r\n")
             self.current_channel = args
-            print(f"{Colors.BLUE}🚪 Entrando em {args}...{Colors.RESET}")
+            self.joined_channels.add(args)
+            print(f"{Colors.BLUE}[{timestamp}] 🚪 Entrando em {args}...{Colors.RESET}")
             
         elif cmd == "part":
             channel = args or self.current_channel
             if channel:
                 self.send(f"PART {channel}\r\n")
-                print(f"{Colors.BLUE}👋 Saindo de {channel}{Colors.RESET}")
+                print(f"{Colors.BLUE}[{timestamp}] 👋 Saindo de {channel}{Colors.RESET}")
+                if channel in self.joined_channels:
+                    self.joined_channels.remove(channel)
                 if channel == self.current_channel:
                     self.current_channel = None
             else:
-                print(f"{Colors.RED}❌ Não está em nenhum canal{Colors.RESET}")
+                print(f"{Colors.RED}[{timestamp}] ❌ Não está em nenhum canal{Colors.RESET}")
                 
         elif cmd == "msg" and args:
             if ' ' in args:
                 target, message = args.split(' ', 1)
                 self.send(f"PRIVMSG {target} :{message}\r\n")
-                print(f"{Colors.MAGENTA}✉️ Para {target}: {message}{Colors.RESET}")
+                print(f"{Colors.MAGENTA}[{timestamp}] ✉️ Para {target}: {message}{Colors.RESET}")
             else:
-                print(f"{Colors.RED}❌ Uso: /msg nick mensagem{Colors.RESET}")
+                print(f"{Colors.RED}[{timestamp}] ❌ Uso: /msg nick mensagem{Colors.RESET}")
                 
         elif cmd == "nick" and args:
             if ' ' in args:
-                print(f"{Colors.RED}❌ Nickname não pode conter espaços{Colors.RESET}")
+                print(f"{Colors.RED}[{timestamp}] ❌ Nickname não pode conter espaços{Colors.RESET}")
                 return
             self.send(f"NICK {args}\r\n")
             self.config['nickname'] = args
-            print(f"{Colors.GREEN}✅ Nickname alterado para {args}{Colors.RESET}")
+            print(f"{Colors.GREEN}[{timestamp}] ✅ Nickname alterado para {args}{Colors.RESET}")
             
         elif cmd == "quit":
             self.running = False
@@ -335,7 +395,7 @@ class SCDPIChatUniversal:
             self.send(f"WHOIS {args}\r\n")
             
         else:
-            print(f"{Colors.RED}❌ Comando desconhecido: {cmd}{Colors.RESET}")
+            print(f"{Colors.RED}[{timestamp}] ❌ Comando desconhecido: {cmd}{Colors.RESET}")
     
     def show_help(self):
         """Mostra ajuda de comandos"""
@@ -355,10 +415,28 @@ class SCDPIChatUniversal:
         print(f"{Colors.YELLOW}/help           {Colors.WHITE}- Esta ajuda")
         print(f"{Colors.YELLOW}/clear          {Colors.WHITE}- Limpar tela{Colors.RESET}")
     
+    def reconnect(self):
+        """Tenta reconectar ao servidor em caso de falha"""
+        if self.reconnect_attempts >= self.max_reconnect_attempts:
+            print(f"{Colors.RED}❌ Máximo de tentativas de reconexão atingido{Colors.RESET}")
+            self.running = False
+            return False
+        
+        print(f"{Colors.YELLOW}⚠️ Tentando reconectar... (Tentativa {self.reconnect_attempts + 1}/{self.max_reconnect_attempts}){Colors.RESET}")
+        time.sleep(2 ** self.reconnect_attempts)  # Exponential backoff
+        self.reconnect_attempts += 1
+        if self.connect():
+            # Reentrar nos canais
+            for channel in self.joined_channels:
+                self.send(f"JOIN {channel}\r\n")
+                print(f"{Colors.BLUE}🚪 Reentrando em {channel}...{Colors.RESET}")
+            return True
+        return False
+    
     def run(self):
         """Loop principal de execução"""
         if self.args.version:
-            print("SCDPI CHAT v2.2 - Nickname definido pelo usuário")
+            print("SCDPI CHAT v2.3 - Cliente IRC com reconexão automática")
             return
             
         self.clear_screen()
@@ -374,14 +452,23 @@ class SCDPIChatUniversal:
         
         try:
             while self.running:
-                data = self.receive()
-                if data:
-                    for line in data.split('\r\n'):
-                        if line.strip():
-                            self.handle_message(line)
-                
-                self.handle_user_input()
-                time.sleep(0.1)
+                try:
+                    data = self.receive()
+                    if data:
+                        for line in data.split('\r\n'):
+                            if line.strip():
+                                self.handle_message(line)
+                    else:
+                        # Verificar conexão
+                        self.send("PING :keepalive\r\n")
+                        
+                    self.handle_user_input()
+                    time.sleep(0.1)
+                    
+                except (ConnectionResetError, BrokenPipeError, OSError):
+                    print(f"{Colors.RED}❌ Conexão perdida!{Colors.RESET}")
+                    if not self.reconnect():
+                        break
                 
         except KeyboardInterrupt:
             print(f"\n{Colors.YELLOW}🛑 Desconectando...{Colors.RESET}")
