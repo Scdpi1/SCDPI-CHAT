@@ -1,5 +1,7 @@
-# SCDPI CHAT - Cliente IRC com Notificações
+# 💬 SCDPI CHAT — Cliente IRC moderno, seguro e com notificações
+**Converse em canais IRC com segurança, estilo moderno e alertas em tempo real.**
 
+Multiplataforma, criptografado, e pronto para uso imediato.
 Cliente IRC moderno com sistema de notificações, modo interativo e suporte multiplataforma.
 
 ## 🚀 Características
